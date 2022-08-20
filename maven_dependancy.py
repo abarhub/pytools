@@ -21,6 +21,9 @@ class maven_obj:
         return s
 
 
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
 def listDependancyBasic(pomFile):
     # POM_FILE = "y16ra/test_pom.xml"  # replace your path
     namespaces = {'xmlns': 'http://maven.apache.org/POM/4.0.0'}
@@ -34,26 +37,32 @@ def listDependancyBasic(pomFile):
         version = d.find("xmlns:version", namespaces=namespaces)
         print(artifactId.text + '\t' + version.text)
 
-
-def dependancyTree(pom):
+def execute_maven(pom):
     cmd = "mvn dependency:tree"
     param = ['cmd', '/C', 'echo', 'More output']
     param = ['cmd', '/C', 'mvn']
     param = ['mvn', '-f', pom, 'dependency:tree']
-    res = subprocess.run(param, shell=True, capture_output=True)
+    res = subprocess.run(param, shell=True, capture_output=True, )
     # stdout, stderr = process.communicate()
 
     # print("stdout:"+stdout)
     # print("stderr:" + stderr)
     print("res:" + str(res))
     print("error:" + str(res.returncode != 0))
+    if res.returncode != 0:
+        eprint("output:" + res.stdout.decode('utf-8'))
+        eprint("error:" + res.stderr.decode('utf-8'))
+        exit(1)
     print("output:" + res.stdout.decode('utf-8'))
 
     lines = res.stdout.decode('utf-8').splitlines()
+    return lines
 
+def parse_output(lines):
     project = ''
     dependancy = False
     dependancyList = []
+    projectDependancy=[]
 
     for line in lines:
 
@@ -75,61 +84,79 @@ def dependancyTree(pom):
         if line.find('--- maven-dependency-plugin') >= 0:
             dependancy = True
             dependancyList = []
+            projectDependancy.append(dependancyList)
             continue
         elif dependancy and line.startswith('---'):
             dependancy = False
+            dependancyList = []
 
         if dependancy:
             dependancyList.append(line)
 
+    list_project=[]
     depmap = None
     last = None
     lastno = -1
-    for line in dependancyList:
-        if line.startswith('---'):
-            break
-        elif line.startswith('+') or line.startswith('|') or line.startswith('\\') or (
-                line.startswith(' ') and line.find('- ') >= 0):
-            i = line.find('+-')
-            if i == -1:
-                i = line.find('\\-')
-            if i >= 0:
-                line = line[i + 2:].strip()
-                nb = int(i / 3)
-            else:
-                nb = 0
-            obj = line.split(':')
-            scope = ''
-            if len(obj) >= 5:
-                scope = obj[4]
-            depmap2 = maven_obj(obj[0], obj[1], obj[3], None, [], scope)
-            if nb == lastno:
-                depmap2.parent = last.parent
-                last.parent.dependancy.append(depmap2)
-            elif nb > lastno:
-                depmap2.parent = last
-                last.dependancy.append(depmap2)
-            elif nb < lastno:
-                parent = last.parent
-                for i in range(lastno - nb):
-                    parent = parent.parent
-                depmap2.parent = parent
-                parent.dependancy.append(depmap2)
-                # depmap2.parent = last.parent
-                # for i in range(lastno-nb):
-                #    depmap2.parent =depmap2.parent.parent
-            lastno = nb
-            last = depmap2
-        elif depmap == None:
-            obj = line.split(':')
-            depmap = maven_obj(obj[0], obj[1], obj[3], None, [], None)
-            last = depmap
-            lastno = -1
+    for proj in projectDependancy:
+        depmap = None
+        last = None
+        lastno = -1
+        for line in proj:
+            if line.startswith('---'):
+                break
+            elif line.startswith('+') or line.startswith('|') or line.startswith('\\') or (
+                    line.startswith(' ') and line.find('- ') >= 0):
+                i = line.find('+-')
+                if i == -1:
+                    i = line.find('\\-')
+                if i >= 0:
+                    line = line[i + 2:].strip()
+                    nb = int(i / 3)
+                else:
+                    nb = 0
+                obj = line.split(':')
+                scope = ''
+                if len(obj) >= 5:
+                    scope = obj[4]
+                depmap2 = maven_obj(obj[0], obj[1], obj[3], None, [], scope)
+                if nb == lastno:
+                    depmap2.parent = last.parent
+                    last.parent.dependancy.append(depmap2)
+                elif nb > lastno:
+                    depmap2.parent = last
+                    last.dependancy.append(depmap2)
+                elif nb < lastno:
+                    parent = last.parent
+                    for i in range(lastno - nb):
+                        parent = parent.parent
+                    depmap2.parent = parent
+                    parent.dependancy.append(depmap2)
+                    # depmap2.parent = last.parent
+                    # for i in range(lastno-nb):
+                    #    depmap2.parent =depmap2.parent.parent
+                lastno = nb
+                last = depmap2
+            elif depmap == None:
+                obj = line.split(':')
+                depmap = maven_obj(obj[0], obj[1], obj[3], None, [], None)
+                last = depmap
+                lastno = -1
+        list_project.append(depmap)
 
-    print('project:' + project)
-    print('dependancy:' + str(dependancyList))
-    print('depmap:' + str(depmap.__dict__))
-    print('depmap.toString:' + depmap.toString())
+    return list_project
+
+def dependancyTree(pom):
+
+    lines=execute_maven(pom)
+
+    list_project=parse_output(lines)
+
+    #print('project:' + project)
+    #print('dependancy:' + str(dependancyList))
+    #print('depmap:' + str(depmap.__dict__))
+    #print('depmap.toString:' + depmap.toString())
+    for project in list_project:
+        print('project.toString:' + project.toString())
 
 
 def main(file):
@@ -139,6 +166,6 @@ def main(file):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print('Error: missing file in argument')
+        eprint('Error: missing file in argument')
         exit(1)
     main(sys.argv[1])
