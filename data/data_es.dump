@@ -1,0 +1,4 @@
+{ "index": { "_index": "test" } }
+{ "name": "john doe", "age": 25 }
+{ "index": {  "_index": "test" } }
+{ "name": "mary smith", "age": 32 }
